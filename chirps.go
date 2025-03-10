@@ -1,0 +1,137 @@
+package main
+
+import (
+	"encoding/json"
+	"errors"
+	"goserver/internal/database"
+	"net/http"
+	"strings"
+
+	"github.com/google/uuid"
+)
+
+type Chirp struct {
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Body      string    `json:"body"`
+	CreatedAt string    `json:"created_at"`
+	UpdatedAt string    `json:"updated_at"`
+}
+
+func ConverToChirp(dbChirp database.Chirp) Chirp {
+	return Chirp{
+		ID:        dbChirp.ID,
+		UserID:    dbChirp.UserID,
+		Body:      dbChirp.Body,
+		CreatedAt: dbChirp.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		UpdatedAt: dbChirp.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+	}
+}
+
+func checkForProfane(msg string) (cleanMsg string, err error) {
+	if len(msg) == 0 {
+		return "", errors.New("empty message")
+	}
+	words := strings.Split(msg, " ")
+	for i, word := range words {
+		if strings.ToLower(word) == "kerfuffle" || strings.ToLower(word) == "sharbert" || strings.ToLower(word) == "fornax" {
+			words[i] = "****"
+		}
+	}
+	resultMsg := strings.Join(words, " ")
+	return resultMsg, nil
+}
+
+func (cfg *apiConfig) chirpHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondWithError(w, http.StatusMethodNotAllowed, "Invalid request method", nil)
+		return
+	}
+
+	type parametrs struct {
+		Body    string `json:"body"`
+		User_id string `json:"user_id"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := parametrs{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters", err)
+		return
+	}
+
+	userUUID, err := uuid.Parse(params.User_id)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid user_id UUID format", err)
+	}
+
+	const maxChirpLength = 140
+	if len(params.Body) > maxChirpLength {
+		respondWithError(w, http.StatusBadRequest, "Chirp is too long", nil)
+		return
+	}
+
+	cleanMsg, err := checkForProfane(params.Body)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't validate parameters", err)
+	}
+
+	dbChirp, err := cfg.DB.CreateChirp(r.Context(), database.CreateChirpParams{
+		UserID: userUUID,
+		Body:   cleanMsg,
+	})
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not create chirp", err)
+	}
+
+	chirp := ConverToChirp(dbChirp)
+	respondWithJSON(w, http.StatusCreated, chirp)
+
+}
+
+func (cfg *apiConfig) chirpsGetHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		respondWithError(w, http.StatusMethodNotAllowed, "Invalid request method", nil)
+		return
+	}
+
+	dbChirps, err := cfg.DB.GetChirps(r.Context())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not retrieve chirps", err)
+		return
+	}
+
+	var chirpsResponse []Chirp
+
+	for _, dbChirp := range dbChirps {
+		chirpsResponse = append(chirpsResponse, ConverToChirp(dbChirp))
+	}
+
+	respondWithJSON(w, http.StatusOK, chirpsResponse)
+
+}
+
+func (cfg *apiConfig) chirpGetHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		respondWithError(w, http.StatusMethodNotAllowed, "Invalid request method", nil)
+		return
+	}
+
+	chirpIDStr := r.PathValue("chirpID")
+
+	chirpID, err := uuid.Parse(chirpIDStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid chirp id format", err)
+	}
+
+	dbChirp, err := cfg.DB.GetChirpByID(r.Context(), chirpID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not retrieve chirp (not found)", err)
+		return
+	}
+
+	chirp := ConverToChirp(dbChirp)
+	respondWithJSON(w, http.StatusOK, chirp)
+
+}
