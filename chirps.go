@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"goserver/internal/auth"
 	"goserver/internal/database"
 	"net/http"
 	"strings"
@@ -48,23 +49,41 @@ func (cfg *apiConfig) chirpHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Missing or invalid authorization token", nil)
+	}
+
+	userID, err := auth.ValidateJWT(token, cfg.JWTSecret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Invalid token", nil)
+		return
+	}
+
+	/*
+		type parametrs struct {
+			Body    string `json:"body"`
+			User_id string `json:"user_id"`
+		}
+	*/
 	type parametrs struct {
-		Body    string `json:"body"`
-		User_id string `json:"user_id"`
+		Body string `json:"body"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
 	params := parametrs{}
-	err := decoder.Decode(&params)
+	err = decoder.Decode(&params)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters", err)
 		return
 	}
 
-	userUUID, err := uuid.Parse(params.User_id)
-	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid user_id UUID format", err)
-	}
+	/*
+		userUUID, err := uuid.Parse(params.User_id)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid user_id UUID format", err)
+		}
+	*/
 
 	const maxChirpLength = 140
 	if len(params.Body) > maxChirpLength {
@@ -78,7 +97,7 @@ func (cfg *apiConfig) chirpHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbChirp, err := cfg.DB.CreateChirp(r.Context(), database.CreateChirpParams{
-		UserID: userUUID,
+		UserID: userID,
 		Body:   cleanMsg,
 	})
 	if err != nil {

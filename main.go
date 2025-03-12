@@ -17,12 +17,17 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	DB             *database.Queries
 	Platform       string
+	JWTSecret      string
 }
 
 func main() {
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatalf("Error loading .env file")
+	}
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatalf("JWT_SECRET is not set in .env file")
 	}
 
 	dbURL := os.Getenv("DB_URL")
@@ -63,6 +68,8 @@ func main() {
 	serverMux.HandleFunc("GET /api/chirps", cfg.chirpsGetHandler)
 	serverMux.HandleFunc("GET /api/chirps/{chirpID}", cfg.chirpGetHandler)
 	serverMux.HandleFunc("POST /api/login", cfg.loginHandler)
+	serverMux.HandleFunc("POST /api/refresh", cfg.refreshTokenHandler)
+	serverMux.HandleFunc("POST /api/revoke", cfg.revokeTokenHandler)
 
 	server := &http.Server{
 		Addr:    ":8080",
