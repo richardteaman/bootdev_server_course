@@ -107,3 +107,17 @@ func ValidateRefreshToken(token string, db *database.Queries) (uuid.UUID, error)
 
 	return dbToken.UserID, nil
 }
+
+func GetAPIKey(headers http.Header) (string, error) {
+	authHeader := headers.Get("Authorization")
+	if authHeader == "" {
+		return "", errors.New("missing Authorization header")
+	}
+
+	authParts := strings.Split(authHeader, " ")
+	if len(authParts) != 2 || strings.ToLower(authParts[0]) != "apikey" {
+		return "", errors.New("invalid Authorization header format")
+	}
+
+	return authParts[1], nil
+}

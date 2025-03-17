@@ -18,6 +18,7 @@ type apiConfig struct {
 	DB             *database.Queries
 	Platform       string
 	JWTSecret      string
+	PolkaKey       string
 }
 
 func main() {
@@ -48,9 +49,16 @@ func main() {
 
 	dbQueries := database.New(db)
 
+	polkaKey := os.Getenv("POLKA_KEY")
+	if polkaKey == "" {
+		log.Fatalf("POLKA_KEY is not set in .env file")
+	}
+
 	cfg := apiConfig{
-		DB:       dbQueries,
-		Platform: platform,
+		DB:        dbQueries,
+		Platform:  platform,
+		JWTSecret: jwtSecret,
+		PolkaKey:  polkaKey,
 	}
 	serverMux := http.NewServeMux()
 
@@ -67,9 +75,12 @@ func main() {
 	serverMux.HandleFunc("POST /api/chirps", cfg.chirpHandler)
 	serverMux.HandleFunc("GET /api/chirps", cfg.chirpsGetHandler)
 	serverMux.HandleFunc("GET /api/chirps/{chirpID}", cfg.chirpGetHandler)
+	serverMux.HandleFunc("DELETE /api/chirps/{chirpID}", cfg.chirpDeleteHandler)
 	serverMux.HandleFunc("POST /api/login", cfg.loginHandler)
 	serverMux.HandleFunc("POST /api/refresh", cfg.refreshTokenHandler)
 	serverMux.HandleFunc("POST /api/revoke", cfg.revokeTokenHandler)
+	serverMux.HandleFunc("PUT /api/users", cfg.updateUserHandler)
+	serverMux.HandleFunc("POST /api/polka/webhooks", cfg.polkaWebhookHandler)
 
 	server := &http.Server{
 		Addr:    ":8080",

@@ -11,18 +11,20 @@ import (
 )
 
 type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
+	ID          uuid.UUID `json:"id"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	Email       string    `json:"email"`
+	IsChirpyRed bool      `json:"is_chirpy_red"`
 }
 
-func ConverToUser(dbUser database.User) User {
+func ConvertToUser(dbUser database.User) User {
 	return User{
-		ID:        dbUser.ID,
-		CreatedAt: dbUser.CreatedAt,
-		UpdatedAt: dbUser.UpdatedAt,
-		Email:     dbUser.Email,
+		ID:          dbUser.ID,
+		CreatedAt:   dbUser.CreatedAt,
+		UpdatedAt:   dbUser.UpdatedAt,
+		Email:       dbUser.Email,
+		IsChirpyRed: dbUser.IsChirpyRed,
 	}
 }
 
@@ -58,7 +60,7 @@ func (cfg *apiConfig) usersHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, "Could not create user", err)
 	}
 
-	user := ConverToUser(dbUser)
+	user := ConvertToUser(dbUser)
 	respondWithJSON(w, http.StatusCreated, user)
 
 }
@@ -128,9 +130,65 @@ func (cfg *apiConfig) loginHandler(w http.ResponseWriter, r *http.Request) {
 		"updated_at":    dbUser.UpdatedAt,
 		"token":         accessToken,
 		"refresh_token": refreshToken,
+		"is_chirpy_red": dbUser.IsChirpyRed,
 	}
 
 	respondWithJSON(w, http.StatusOK, userWithTokens)
-	//user := ConverToUser(dbUser)
+	//user := ConvertToUser(dbUser)
 	//respondWithJSON(w, http.StatusOK, user)
+}
+
+func (cfg *apiConfig) updateUserHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		respondWithError(w, http.StatusMethodNotAllowed, "Invalid request method", nil)
+		return
+	}
+
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Missing or invalid authorization token", nil)
+		return
+	}
+
+	userID, err := auth.ValidateJWT(token, cfg.JWTSecret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Invalid JWT token", nil)
+	}
+
+	type updateParams struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+
+	params := updateParams{}
+	decoder := json.NewDecoder(r.Body)
+	err = decoder.Decode(&params)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid JSON request body", err)
+	}
+
+	hashedPassword, err := auth.HashPassword(params.Password)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to hash password", err)
+	}
+
+	err = cfg.DB.UpdateUser(r.Context(), database.UpdateUserParams{
+		ID:             userID,
+		Email:          params.Email,
+		HashedPassword: hashedPassword,
+	})
+
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not update user", err)
+		return
+	}
+
+	updatedUser, err := cfg.DB.GetUserById(r.Context(), userID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not fetch updated user", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, ConvertToUser(updatedUser))
+
 }
